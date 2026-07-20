@@ -34,7 +34,7 @@ def send_messenger_message(recipient_id, text_message):
     requests.post(url, json=payload, timeout=5)
 
 # 1. الـ Endpoint الخاص بالتحقق (Verification) - كيحتاجو الفيسبوك المرة الأولى فقط
-@app.get("/webhook")
+@app.get("/")
 async def verify_webhook(request: Request):
     params = request.query_params
     mode = params.get("hub.mode")
@@ -46,7 +46,7 @@ async def verify_webhook(request: Request):
     return Response(content="Invalid verification token", status_code=403)
 
 # 2. الـ Endpoint اللي كيستقبل الرسائل الحقيقية من المستخدمين
-@app.post("/webhook")
+@app.post("/")
 async def handle_messages(request: Request):
     body = await request.json()
     
