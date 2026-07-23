@@ -83,4 +83,7 @@ def send_message(recipient_id, text):
 def call_send_api(message_data):
     url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
     headers = {"Content-Type": "application/json"}
-    requests.post(url, json=message_data, headers=headers)
+    response = requests.post(url, json=message_data, headers=headers)
+    
+    # هاد السطر غادي يبين لينا واش فيسبوك قبل الرسالة ولا رفضها وعلاش
+    print("رد فيسبوك:", response.status_code, response.text)
