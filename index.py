@@ -5,12 +5,12 @@ import os
 app = Flask(__name__)
 
 # هادو غادي تزيدهم فـ Environment Variables فـ Vercel
-PAGE_ACCESS_TOKEN = "EAATLbkq5LgwBSHZC7n6ZAdn22EQaeXuZCBP97g1xpUW4ZApAYaAhoi2MkB74kWaqbkabRZBb5b4OtszlgMwG6XOYTuIxhkOgkqH2kr9n7g0BnhWMZAtFLfCO0nPa9ftSEZCPZCVvSViUuZC4wTk4MDEifxr5C4qucaoEEz4AoIuTYuQbwqS883cHe2QVVVMxkBWS2NNWxfQZDZD"
+PAGE_ACCESS_TOKEN = "EAATLbkq5LgwBSOlWlZBcXEJKzncXB8G0BLnGUTinJdshh6iAL7Vphpu1hHvnZAKQbRdSZCjyaZBT1rAN2Q2SfZAD3yrGVHE21TGPIqu887JqKpDGv0z3uJ4MizZBWa4BE343v2GZC5V0fZAl53uvgUjPEy1fuc1p9pk47u1eAYjntw24C3wUogJZAfSfQN3WGpxPtpveIqwZDZD"
 VERIFY_TOKEN = "ABCD1234" 
 
 
 # مسار باش فيسبوك يدير Verify للـ Webhook
-@app.route('/webhook', methods=['GET'])
+@app.route('/', methods=['GET'])
 def verify():
     if request.args.get("hub.mode") == "subscribe" and request.args.get("hub.challenge"):
         if not request.args.get("hub.verify_token") == VERIFY_TOKEN:
@@ -19,7 +19,7 @@ def verify():
     return "Bot is running on Vercel!", 200
 
 # مسار باش نستقبلو الرسائل من عند المستعملين
-@app.route('/webhook', methods=['POST'])
+@app.route('/', methods=['POST'])
 def webhook():
     data = request.get_json()
     if data.get('object') == 'page':
