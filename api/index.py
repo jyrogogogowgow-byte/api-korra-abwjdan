@@ -10,7 +10,7 @@ VERIFY_TOKEN = "ABCD1234"
 
 
 # مسار باش فيسبوك يدير Verify للـ Webhook
-@app.route('/', methods=['GET'])
+@app.route('/webhook', methods=['GET'])
 def verify():
     if request.args.get("hub.mode") == "subscribe" and request.args.get("hub.challenge"):
         if not request.args.get("hub.verify_token") == VERIFY_TOKEN:
@@ -19,7 +19,7 @@ def verify():
     return "Bot is running on Vercel!", 200
 
 # مسار باش نستقبلو الرسائل من عند المستعملين
-@app.route('/', methods=['POST'])
+@app.route('/webhook', methods=['POST'])
 def webhook():
     data = request.get_json()
     if data.get('object') == 'page':
