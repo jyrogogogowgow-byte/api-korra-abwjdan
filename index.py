@@ -22,7 +22,10 @@ def verify():
 @app.route('/', methods=['POST'])
 def webhook():
     data = request.get_json()
+    print("💌 وصلاتني هاد الداتا من فيسبوك: ", data) # هاد السطر غادي يوريك فـ Vercel واش الرسالة وصلات
+    
     if data.get('object') == 'page':
+        # ... كمل الكود ديالك بحال لي قبل ...
         for entry in data['entry']:
             for messaging_event in entry.get('messaging', []):
                 if messaging_event.get('message'):
