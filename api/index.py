@@ -1,83 +1,73 @@
-from flask import Flask, request
-import requests
-import os
+from flask import Flask, request, jsonify
+import yt_dlp
+import re
 
 app = Flask(__name__)
 
-# هادو غادي تزيدهم فـ Environment Variables فـ Vercel
-PAGE_ACCESS_TOKEN = "EAATLbkq5LgwBSHZC7n6ZAdn22EQaeXuZCBP97g1xpUW4ZApAYaAhoi2MkB74kWaqbkabRZBb5b4OtszlgMwG6XOYTuIxhkOgkqH2kr9n7g0BnhWMZAtFLfCO0nPa9ftSEZCPZCVvSViUuZC4wTk4MDEifxr5C4qucaoEEz4AoIuTYuQbwqS883cHe2QVVVMxkBWS2NNWxfQZDZD"
-VERIFY_TOKEN = "ABCD1234" 
+
+def valid_instagram_url(url):
+    pattern = r"^https?://(www\.)?instagram\.com/(reel|p|tv)/"
+    return bool(re.match(pattern, url))
 
 
-# مسار باش فيسبوك يدير Verify للـ Webhook
-@app.route('/webhook', methods=['GET'])
-def verify():
-    if request.args.get("hub.mode") == "subscribe" and request.args.get("hub.challenge"):
-        if not request.args.get("hub.verify_token") == VERIFY_TOKEN:
-            return "Verification token mismatch", 403
-        return request.args["hub.challenge"], 200
-    return "Bot is running on Vercel!", 200
+@app.route("/api/download", methods=["GET"])
+def download():
 
-# مسار باش نستقبلو الرسائل من عند المستعملين
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    data = request.get_json()
-    if data.get('object') == 'page':
-        for entry in data['entry']:
-            for messaging_event in entry.get('messaging', []):
-                if messaging_event.get('message'):
-                    sender_id = messaging_event['sender']['id']
-                    
-                    # قلب واش المستعمل كليكا على شي زر (Quick Reply)
-                    quick_reply = messaging_event['message'].get('quick_reply')
-                    
-                    if quick_reply:
-                        payload = quick_reply.get('payload')
-                        if payload == 'CORRECT':
-                            send_message(sender_id, "جواب صحيح! برافو 👏")
-                            # ممكن تزيد كود هنا باش تصيفط السؤال لي موراه
-                        elif payload == 'WRONG':
-                            send_message(sender_id, "جواب غالط! حاول مرة أخرى ❌")
-                    else:
-                        # يلا كتب أي حاجة، نصيفطو ليه السؤال
-                        send_question(sender_id)
-    return "ok", 200
+    url = request.args.get("url")
 
-def send_question(recipient_id):
-    # إعداد السؤال والأزرار (Quick Replies)
-    message_data = {
-        "recipient": {"id": recipient_id},
-        "message": {
-            "text": "شنو هي عاصمة المغرب؟",
-            "quick_replies": [
-                {
-                    "content_type": "text",
-                    "title": "الدار البيضاء",
-                    "payload": "WRONG"
-                },
-                {
-                    "content_type": "text",
-                    "title": "الرباط",
-                    "payload": "CORRECT" # هادا هو الجواب الصحيح
-                },
-                {
-                    "content_type": "text",
-                    "title": "مراكش",
-                    "payload": "WRONG"
-                }
-            ]
-        }
+    if not url:
+        return jsonify({
+            "success": False,
+            "error": "Missing url"
+        }), 400
+
+    if not valid_instagram_url(url):
+        return jsonify({
+            "success": False,
+            "error": "Invalid Instagram URL"
+        }), 400
+
+    options = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "format": "best",
+        "noplaylist": True,
     }
-    call_send_api(message_data)
 
-def send_message(recipient_id, text):
-    message_data = {
-        "recipient": {"id": recipient_id},
-        "message": {"text": text}
-    }
-    call_send_api(message_data)
+    try:
+        with yt_dlp.YoutubeDL(options) as ydl:
 
-def call_send_api(message_data):
-    url = f"https://graph.facebook.com/v19.0/me/messages?access_token={PAGE_ACCESS_TOKEN}"
-    headers = {"Content-Type": "application/json"}
-    requests.post(url, json=message_data, headers=headers)
+            info = ydl.extract_info(url, download=False)
+
+            return jsonify({
+                "success": True,
+                "id": info.get("id"),
+                "title": info.get("title"),
+                "description": info.get("description"),
+                "thumbnail": info.get("thumbnail"),
+                "duration": info.get("duration"),
+                "width": info.get("width"),
+                "height": info.get("height"),
+                "url": info.get("url")
+            })
+
+    except Exception as e:
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route("/api", methods=["GET"])
+def home():
+    return jsonify({
+        "name": "Instagram Downloader API",
+        "status": "online",
+        "usage": "/api/download?url=INSTAGRAM_URL"
+    })
+
+
+if __name__ == "__main__":
+    app.run()
