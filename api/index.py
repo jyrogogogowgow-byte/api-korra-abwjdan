@@ -6,7 +6,7 @@ app = Flask(__name__)
 
 
 def valid_instagram_url(url):
-    pattern = r"^https?://(www\.)?instagram\.com/(reel|p|tv)/"
+    pattern = r"^https?://(www\.)?youtu.be\.com/(reel|p|tv)/"
     return bool(re.match(pattern, url))
 
 
