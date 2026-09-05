@@ -1,25 +1,119 @@
-from flask import Flask, request, jsonify
-import yt_dlp
+import os
 import re
+import glob
+import time
+import uuid
+import threading
+from flask import Flask, request, jsonify, send_from_directory
+import yt_dlp
 
 app = Flask(__name__)
 
+DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "/app/downloads")
+MAX_FILE_AGE = int(os.environ.get("MAX_FILE_AGE", "3600"))
+MAX_DURATION = int(os.environ.get("MAX_DURATION", "7200"))
+
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+YOUTUBE_REGEX = re.compile(
+    r"^(https?://)?(www\.)?(youtube\.com|youtu\.be)/.+$",
+    re.IGNORECASE
+)
+
 
 def valid_youtube_url(url):
-    pattern = r"^(https?://)?(www\.)?(youtube\.com/(watch\?v=|shorts/|live/)|youtu\.be/)[\w-]+"
-    return bool(re.match(pattern, url))
-
-
-@app.route("/api/download", methods=["GET"])
-def download():
-
-    url = request.args.get("url")
-
     if not url:
-        return jsonify({
-            "success": False,
-            "error": "Missing url"
-        }), 400
+        return False
+
+    url = url.strip()
+
+    if not YOUTUBE_REGEX.match(url):
+        return False
+
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    return url
+
+
+def cleanup_old_files():
+    while True:
+        try:
+            now = time.time()
+
+            for path in glob.glob(os.path.join(DOWNLOAD_DIR, "*")):
+                try:
+                    if os.path.isfile(path):
+                        age = now - os.path.getmtime(path)
+
+                        if age > MAX_FILE_AGE:
+                            os.remove(path)
+
+                except Exception:
+                    pass
+
+        except Exception:
+            pass
+
+        time.sleep(300)
+
+
+threading.Thread(
+    target=cleanup_old_files,
+    daemon=True
+).start()
+
+
+def get_common_options():
+    return {
+        "quiet": True,
+        "no_warnings": True,
+
+        # Allow yt-dlp to use the JS runtime installed in Docker
+        "js_runtimes": {
+            "deno": {}
+        },
+
+        # Don't download playlists accidentally
+        "noplaylist": True,
+
+        # Network
+        "socket_timeout": 30,
+        "retries": 3,
+
+        # Avoid keeping partial files
+        "continuedl": False,
+
+        # Security
+        "restrictfilenames": True,
+
+        # FFmpeg
+        "ffmpeg_location": "/usr/bin/ffmpeg",
+    }
+
+
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({
+        "success": True,
+        "service": "YouTube Downloader API",
+        "version": "1.0",
+        "endpoint": "/api/download?url=YOUTUBE_URL"
+    })
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({
+        "success": True,
+        "status": "online"
+    })
+
+
+@app.route("/api/info", methods=["GET"])
+def info():
+
+    url = request.args.get("url", "").strip()
 
     if not valid_youtube_url(url):
         return jsonify({
@@ -29,97 +123,31 @@ def download():
 
     try:
 
-        # استخراج معلومات الفيديو
-        info_options = {
-            "quiet": True,
-            "no_warnings": True,
-            "skip_download": True,
-            "noplaylist": True,
-        }
+        options = get_common_options()
 
-        with yt_dlp.YoutubeDL(info_options) as ydl:
-            info = ydl.extract_info(url, download=False)
+        options["skip_download"] = True
 
-        formats = info.get("formats", [])
+        with yt_dlp.YoutubeDL(options) as ydl:
 
-        # --------------------------------
-        # أفضل فيديو
-        # --------------------------------
+            data = ydl.extract_info(url, download=False)
 
-        video_formats = [
-            f for f in formats
-            if f.get("vcodec") != "none"
-            and f.get("url")
-        ]
+            duration = data.get("duration")
 
-        video_formats.sort(
-            key=lambda f: (
-                f.get("height") or 0,
-                f.get("tbr") or 0
-            ),
-            reverse=True
-        )
+            if duration and duration > MAX_DURATION:
+                return jsonify({
+                    "success": False,
+                    "error": "Video is too long"
+                }), 400
 
-        best_video = video_formats[0] if video_formats else None
-
-        # --------------------------------
-        # أفضل صوت
-        # --------------------------------
-
-        audio_formats = [
-            f for f in formats
-            if f.get("acodec") != "none"
-            and f.get("vcodec") == "none"
-            and f.get("url")
-        ]
-
-        audio_formats.sort(
-            key=lambda f: (
-                f.get("abr") or 0,
-                f.get("tbr") or 0
-            ),
-            reverse=True
-        )
-
-        best_audio = audio_formats[0] if audio_formats else None
-
-        return jsonify({
-
-            "success": True,
-
-            "id": info.get("id"),
-
-            "title": info.get("title"),
-
-            "thumbnail": info.get("thumbnail"),
-
-            "description": info.get("description"),
-
-            "duration": info.get("duration"),
-
-            "width": info.get("width"),
-
-            "height": info.get("height"),
-
-            "video": {
-                "url": best_video.get("url") if best_video else None,
-                "format_id": best_video.get("format_id") if best_video else None,
-                "ext": best_video.get("ext") if best_video else None,
-                "width": best_video.get("width") if best_video else None,
-                "height": best_video.get("height") if best_video else None,
-                "fps": best_video.get("fps") if best_video else None,
-                "filesize": best_video.get("filesize") if best_video else None
-            },
-
-            "audio": {
-                "url": best_audio.get("url") if best_audio else None,
-                "format_id": best_audio.get("format_id") if best_audio else None,
-                "ext": best_audio.get("ext") if best_audio else None,
-                "abr": best_audio.get("abr") if best_audio else None,
-                "filesize": best_audio.get("filesize") if best_audio else None
-            }
-
-        })
+            return jsonify({
+                "success": True,
+                "id": data.get("id"),
+                "title": data.get("title"),
+                "thumbnail": data.get("thumbnail"),
+                "duration": duration,
+                "uploader": data.get("uploader"),
+                "webpage_url": data.get("webpage_url")
+            })
 
     except Exception as e:
 
@@ -129,15 +157,143 @@ def download():
         }), 500
 
 
-@app.route("/api", methods=["GET"])
-def home():
+@app.route("/api/download", methods=["GET"])
+def download():
 
-    return jsonify({
-        "name": "YouTube Downloader API",
-        "status": "online",
-        "usage": "/api/download?url=YOUTUBE_URL"
+    url = request.args.get("url", "").strip()
+
+    if not valid_youtube_url(url):
+        return jsonify({
+            "success": False,
+            "error": "Invalid YouTube URL"
+        }), 400
+
+    job_id = uuid.uuid4().hex
+
+    output_template = os.path.join(
+        DOWNLOAD_DIR,
+        f"{job_id}.%(ext)s"
+    )
+
+    options = get_common_options()
+
+    options.update({
+
+        # Best available video + best audio
+        # FFmpeg merges them into MP4
+        "format": (
+            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/"
+            "best[ext=mp4]/best"
+        ),
+
+        "outtmpl": output_template,
+
+        "merge_output_format": "mp4",
+
+        "postprocessors": [],
+
     })
+
+    try:
+
+        with yt_dlp.YoutubeDL(options) as ydl:
+
+            info_data = ydl.extract_info(
+                url,
+                download=False
+            )
+
+            duration = info_data.get("duration")
+
+            if duration and duration > MAX_DURATION:
+                return jsonify({
+                    "success": False,
+                    "error": "Video exceeds maximum allowed duration"
+                }), 400
+
+            title = info_data.get("title")
+            thumbnail = info_data.get("thumbnail")
+
+            # Download
+            ydl.download([url])
+
+        # Find generated file
+        files = glob.glob(
+            os.path.join(DOWNLOAD_DIR, f"{job_id}.*")
+        )
+
+        files = [
+            f for f in files
+            if not f.endswith(".part")
+            and not f.endswith(".ytdl")
+        ]
+
+        if not files:
+
+            return jsonify({
+                "success": False,
+                "error": "Download completed but file was not found"
+            }), 500
+
+        filepath = files[0]
+
+        filename = os.path.basename(filepath)
+
+        base_url = request.host_url.rstrip("/")
+
+        download_url = (
+            f"{base_url}/files/{filename}"
+        )
+
+        return jsonify({
+
+            "success": True,
+
+            "title": title,
+
+            "thumbnail": thumbnail,
+
+            "video": download_url,
+
+            "filename": filename
+
+        })
+
+    except Exception as e:
+
+        # Remove failed files
+        for f in glob.glob(
+            os.path.join(DOWNLOAD_DIR, f"{job_id}.*")
+        ):
+            try:
+                os.remove(f)
+            except Exception:
+                pass
+
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route("/files/<path:filename>", methods=["GET"])
+def files(filename):
+
+    return send_from_directory(
+        DOWNLOAD_DIR,
+        filename,
+        as_attachment=True
+    )
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+
+    port = int(
+        os.environ.get("PORT", "8080")
+    )
+
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        threaded=True
+    )
